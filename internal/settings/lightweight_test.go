@@ -50,25 +50,25 @@ func TestLightweightKeptAndOwn(t *testing.T) {
 // computer's own.
 func TestKeepAwakeKeptAndOwn(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if Load().KeepAwake {
+	if s := Load(); s.KeepAwake || s.KeepAwakeAlways {
 		t.Fatal("on by default")
 	}
 	s := Load()
-	s.KeepAwake, s.KeepAwakeDisplay = true, true
+	s.KeepAwake, s.KeepAwakeDisplay, s.KeepAwakeAlways = true, true, true
 	if err := Save(s); err != nil {
 		t.Fatal(err)
 	}
-	if l := Load(); !l.KeepAwake || !l.KeepAwakeDisplay {
+	if l := Load(); !l.KeepAwake || !l.KeepAwakeDisplay || !l.KeepAwakeAlways {
 		t.Fatal("not kept")
 	}
 	from := Settings{}
 	from.KeepOwn(Load())
-	if !from.KeepAwake || !from.KeepAwakeDisplay {
+	if !from.KeepAwake || !from.KeepAwakeDisplay || !from.KeepAwakeAlways {
 		t.Fatal("KeepOwn dropped it")
 	}
-	from = Settings{KeepAwake: true, KeepAwakeDisplay: true}
+	from = Settings{KeepAwake: true, KeepAwakeDisplay: true, KeepAwakeAlways: true}
 	from.KeepOwn(Settings{})
-	if from.KeepAwake || from.KeepAwakeDisplay {
+	if from.KeepAwake || from.KeepAwakeDisplay || from.KeepAwakeAlways {
 		t.Fatal("another computer's turned on here")
 	}
 }

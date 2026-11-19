@@ -67,6 +67,29 @@ async function open(engine, lang, web, posted, st, t, width = 900) {
 }
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
+  test(`${engine}: keep awake can stay on while the gateway is paused`, async (t) => {
+    const posted = [], st = { keepAwake: true, keepAwakeDisplay: true, gatewayPaused: true };
+    const { page, errors } = await open(engine, "zh", false, posted, st, t, 440);
+    const scope = page.locator("#keepAwakeScopeRow");
+    const selected = scope.locator(".opt.on");
+    const choose = async (name, always) => {
+      await scope.getByText(name, { exact: true }).click();
+      await page.waitForFunction(() => prefsBusy === 0);
+      assert.equal(posted.at(-1)?.keepAwakeAlways, always);
+      assert.equal(await selected.innerText(), name);
+    };
+    assert.equal(await scope.locator(".name").innerText(), "仅在网关有任务时生效");
+    assert.equal(await selected.innerText(), "开启");
+    await choose("关闭", true);
+    assert.equal(await page.locator("#keepAwakeSegs .opt.on").innerText(), words.zh.display);
+    assert.equal(await page.locator("#keepAwakeRow .sub").evaluate((line) => line.hidden), true);
+    await page.reload();
+    await settingsDrawn(page);
+    assert.equal(await selected.innerText(), "关闭");
+    await choose("开启", false);
+    assert.deepEqual(errors, []);
+  });
+
   for (const lang of ["en", "zh", "ja", "de"]) for (const width of [900, 440]) {
     const w = words[lang];
     test(`${engine} ${lang} ${width}px: keep awake is turned on and off in Settings → General`, async (t) => {

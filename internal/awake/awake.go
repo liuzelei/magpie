@@ -4,8 +4,9 @@
 // on, the magpie serving the gateway holds the system's sleep off while a
 // request is in flight, a Claude Code turn waits on its tool results, or a
 // request ended less than Grace ago — an agent running a build or the tests
-// between one request and the next — and lets go once it is idle. Only the
-// system's sleep of its own is held off: the display still turns off, unless
+// between one request and the next — and lets go once it is idle. With
+// KeepAwakeAlways it holds while magpie runs, including with no gateway.
+// The system's idle sleep is held off. The display still turns off unless
 // settings.KeepAwakeDisplay asks for it to stay on too (#975, Hu9956: an
 // agent recording the screen to check its work found it locked), and
 // closing a laptop's lid or choosing Sleep still sleeps.
@@ -24,12 +25,13 @@ import (
 
 	"github.com/yetone/magpie/internal/beat"
 	"github.com/yetone/magpie/internal/filememo"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // Grace is how long after the last request ended sleep is still held off.
 var Grace = 10 * time.Minute
 
-// tick is how often Keep looks again.
+// tick is how often keep looks again.
 var tick = 5 * time.Second
 
 // hold takes the system's sleep off, and with display the display's too,
@@ -56,9 +58,30 @@ func want(st State, now time.Time) bool {
 	return st.Busy || (!st.Last.IsZero() && now.Sub(st.Last) < Grace)
 }
 
-// Keep holds sleep off as far as level says while state says the agents are
-// at work, until ctx ends. A level changed while held is taken anew.
-func Keep(ctx context.Context, level func() Level, state func() State) {
+// Run applies this computer's awake settings until ctx ends. State is read
+// when the settings depend on work at the gateway.
+func Run(ctx context.Context, state func() State) {
+	keep(ctx, func() policy {
+		s := settings.Shared()
+		if !s.KeepAwake {
+			return policy{}
+		}
+		l := System
+		if s.KeepAwakeDisplay {
+			l = Display
+		}
+		return policy{level: l, always: s.KeepAwakeAlways}
+	}, state)
+}
+
+type policy struct {
+	level  Level
+	always bool
+}
+
+// keep holds sleep off according to the current policy and gateway state.
+// A level changed while held is taken anew.
+func keep(ctx context.Context, current func() policy, state func() State) {
 	var release func()
 	held := Off
 	let := func() {
@@ -66,7 +89,7 @@ func Keep(ctx context.Context, level func() Level, state func() State) {
 			release()
 			release = nil
 			held = Off
-			log.Print("awake: the agents are idle; the computer may sleep again")
+			log.Print("awake: the computer may sleep again")
 		}
 	}
 	defer let()
@@ -74,8 +97,9 @@ func Keep(ctx context.Context, level func() Level, state func() State) {
 	for {
 		// taken before the look, so a write made during it isn't missed
 		written := filememo.Written()
-		l := level()
-		if l != Off && want(state(), time.Now()) {
+		p := current()
+		l := p.level
+		if l != Off && (p.always || want(state(), time.Now())) {
 			if release != nil && held != l {
 				release()
 				release = nil
@@ -89,9 +113,9 @@ func Keep(ctx context.Context, level func() Level, state func() State) {
 				} else {
 					release, held = r, l
 					if l == Display {
-						log.Print("awake: agents at work; keeping the computer from sleeping and its display on")
+						log.Print("awake: keeping the computer from sleeping and its display on")
 					} else {
-						log.Print("awake: agents at work; keeping the computer from sleeping")
+						log.Print("awake: keeping the computer from sleeping")
 					}
 				}
 			}
@@ -123,7 +147,7 @@ func Keep(ctx context.Context, level func() Level, state func() State) {
 // before routing and got a 504. An agent waiting on the gateway is the
 // user's work, so the activity says it is user initiated, as Apple's App
 // Nap opt-out does. It lets the system sleep when idle, as it did: holding
-// that off is Keep's, and only while the user asked for it. Nor does it
+// that off is Run's, and only while the user asked for it. Nor does it
 // ask for NSActivityLatencyCritical's timer precision, which is for audio
 // and video; a request needs the process run, not run to the millisecond.
 func NoNap() func() {

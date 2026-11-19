@@ -26,6 +26,26 @@ func home(t *testing.T) {
 	t.Setenv("APPDATA", filepath.Join(root, "AppData", "Roaming"))
 }
 
+func TestKeepAwakeAlwaysPreference(t *testing.T) {
+	home(t)
+	for _, want := range []bool{true, false} {
+		body, err := json.Marshal(map[string]bool{"keepAwakeAlways": want})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := Apply(body, false); err != nil {
+			t.Fatal(err)
+		}
+		// An older Settings page doesn't send the new choice.
+		if _, _, err := Apply([]byte(`{"theme":"dark"}`), true); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := Value(settings.Load(), "keepAwakeAlways"); got != want {
+			t.Fatalf("saved keepAwakeAlways = %v, want %v", got, want)
+		}
+	}
+}
+
 // sample is a value of t that isn't was, as JSON carries it.
 func sample(t reflect.Type, key string, was reflect.Value) reflect.Value {
 	v := reflect.New(t).Elem()

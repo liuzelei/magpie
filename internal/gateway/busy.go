@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/yetone/magpie/internal/awake"
 )
 
 // Busy is what a restart of the magpie serving the gateway would cut
@@ -33,6 +35,15 @@ type Busy struct {
 
 // Any is whether there is anything in flight.
 func (b Busy) Any() bool { return b.Requests > 0 || b.Tools > 0 }
+
+// AwakeState is idle when the host has no gateway (s is nil).
+func (s *Server) AwakeState() awake.State {
+	if s == nil {
+		return awake.State{}
+	}
+	b := s.Busy()
+	return awake.State{Busy: b.Any(), Last: b.Last}
+}
 
 // Busy says what is in flight at the gateway now.
 func (s *Server) Busy() Busy {

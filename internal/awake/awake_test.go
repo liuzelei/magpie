@@ -9,6 +9,7 @@ import (
 
 	"github.com/yetone/magpie/internal/beat"
 	"github.com/yetone/magpie/internal/filememo"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 func TestWant(t *testing.T) {
@@ -47,13 +48,13 @@ func TestKeep(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		Keep(ctx, func() Level {
+		keep(ctx, func() policy {
 			mu.Lock()
 			defer mu.Unlock()
 			if on {
-				return System
+				return policy{level: System}
 			}
-			return Off
+			return policy{}
 		},
 			func() State { mu.Lock(); defer mu.Unlock(); return st })
 		close(done)
@@ -110,7 +111,7 @@ func TestKeepDisplay(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		Keep(ctx, func() Level { mu.Lock(); defer mu.Unlock(); return level },
+		keep(ctx, func() policy { mu.Lock(); defer mu.Unlock(); return policy{level: level} },
 			func() State { return State{Busy: true} })
 		close(done)
 	}()
@@ -168,12 +169,12 @@ func TestKeepOffWaitsForTheSetting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		Keep(ctx, func() Level {
+		keep(ctx, func() policy {
 			looks.Add(1)
 			if on.Load() {
-				return System
+				return policy{level: System}
 			}
-			return Off
+			return policy{}
 		}, func() State { return State{Busy: true} })
 		close(done)
 	}()
@@ -212,13 +213,13 @@ func TestKeepOffSeesAWriteDuringTheLook(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		Keep(ctx, func() Level {
+		keep(ctx, func() policy {
 			if on.Load() {
 				select {
 				case again <- time.Now():
 				default:
 				}
-				return System
+				return policy{level: System}
 			}
 			// the beat Keep waits for, turned off (beat.Next: the next
 			// multiple of OthersEvery on the clock), 2s away at least, so
@@ -235,7 +236,7 @@ func TestKeepOffSeesAWriteDuringTheLook(t *testing.T) {
 			on.Store(true)
 			filememo.Forget()
 			wrote <- write{at, next}
-			return Off
+			return policy{}
 		}, func() State { return State{Busy: true} })
 		close(done)
 	}()
@@ -256,4 +257,76 @@ func TestKeepOffSeesAWriteDuringTheLook(t *testing.T) {
 	case <-time.After(time.Until(w.next) + 10*time.Second):
 		t.Fatal("turned on during the look, the setting was never looked at again")
 	}
+}
+
+func TestRunWithoutGateway(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	oldHold, oldTick := hold, tick
+	defer func() { hold, tick = oldHold, oldTick }()
+	tick = time.Millisecond
+
+	var active atomic.Int32
+	hold = func(display bool) (func(), error) {
+		if display {
+			active.Store(2)
+		} else {
+			active.Store(1)
+		}
+		return func() { active.Store(0) }, nil
+	}
+	s := settings.Load()
+	s.KeepAwake, s.KeepAwakeDisplay = true, true
+	save := func() {
+		t.Helper()
+		if err := settings.Save(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save()
+
+	checked := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		Run(ctx, func() State {
+			select {
+			case checked <- struct{}{}:
+			default:
+			}
+			return State{}
+		})
+	}()
+	defer func() { cancel(); <-done }()
+
+	select {
+	case <-checked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("older settings did not use gateway activity")
+	}
+	wait := func(want int32) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); active.Load() != want; {
+			if time.Now().After(deadline) {
+				t.Fatalf("awake level = %d, want %d", active.Load(), want)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	wait(0)
+	s.KeepAwakeAlways = true
+	save()
+	wait(2)
+	s.KeepAwakeDisplay = false
+	save()
+	wait(1)
+	s.KeepAwakeAlways = false
+	save()
+	wait(0)
+	s.KeepAwakeAlways = true
+	save()
+	wait(1)
+	cancel()
+	<-done
+	wait(0)
 }
