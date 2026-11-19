@@ -30,7 +30,7 @@ var Keys = []string{
 	// Appearance
 	"theme", "accent", "colorblind", "reduceMotion", "noBird", "lang", "uiFont", "codeFont",
 	// the tray, the Dock and this computer
-	"tray", "dock", "dockWindow", "dockNever", "lightweight", "keepAwake", "keepAwakeDisplay",
+	"tray", "dock", "dockWindow", "dockNever", "lightweight", "keepAwake", "keepAwakeDisplay", "keepAwakeAlways",
 	"noWSLAgents", "sessionTerminal", "signInLinkOnly", "quitNoAsk", "restoreOnQuit", "name",
 	// the menu bar's allowance cards
 	"trayUsages", "trayUsage", "trayUsageEvery", "trayNoLogos", "trayAnthropicMark", "trayNoBird", "trayNoNumber", "trayPace", "trayNoCost", "trayWindows",
@@ -240,6 +240,9 @@ func Merge(body []byte, cur settings.Settings, web bool) (settings.Settings, err
 	// nor whether animations are stilled (#3813)
 	if _, sent := fields["reduceMotion"]; !sent {
 		in.ReduceMotion = cur.ReduceMotion
+	}
+	if _, sent := fields["keepAwakeAlways"]; !sent {
+		in.KeepAwakeAlways = cur.KeepAwakeAlways
 	}
 	// nor the accent colour, which pages before it never sent
 	if _, sent := fields["accent"]; !sent {

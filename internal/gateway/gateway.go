@@ -535,6 +535,10 @@ type Call struct {
 
 // Server is the gateway.
 type Server struct {
+	// AwakeManagedByHost lets the desktop or web process keep its awake
+	// settings applied across gateway pauses and restarts. Set before serving.
+	AwakeManagedByHost bool
+
 	client *http.Client
 	// ending closes once the gateway stops serving, for a stream with no
 	// end of its own (routeEvents) to end before Shutdown, which would
@@ -955,19 +959,9 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	go plugin.KeepBunUpdated(ctx)
 	// and keeps macOS from App Napping the process the agents wait on (#6261)
 	defer awake.NoNap()()
-	// and, when settings say to, keeps the computer awake while agents work
-	go awake.Keep(ctx, func() awake.Level {
-		switch set := settings.Load(); {
-		case !set.KeepAwake:
-			return awake.Off
-		case set.KeepAwakeDisplay:
-			return awake.Display
-		}
-		return awake.System
-	}, func() awake.State {
-		b := s.Busy()
-		return awake.State{Busy: b.Any(), Last: b.Last}
-	})
+	if !s.AwakeManagedByHost {
+		go awake.Run(freshCtx, s.AwakeState)
+	}
 	for _, f := range WhileServing {
 		go f(ctx)
 	}

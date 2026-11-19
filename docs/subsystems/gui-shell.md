@@ -42,6 +42,25 @@ three.
 
 ## Constraints and failure behavior
 
+### Prevent sleep
+
+Settings › General › Prevent sleep offers two gateway-task modes (system
+only and screen on), Screen on while Magpie runs, and Off. The gateway
+modes follow requests in flight, Claude Code bridge turns waiting on tools,
+and the 10-minute grace period after the last counted request. The continuous
+screen mode applies even when the gateway is paused and magpie only reads
+local usage. Closing the window leaves it active while magpie stays in the
+tray. Off releases the hold. If the CLI configured a continuous system-only
+hold, the menu shows that as the current mode.
+
+[`startBackend`](../../internal/gui/backend.go) owns the watcher for
+the desktop app and `magpie web`, so a gateway pause or restart does
+not interrupt a continuous hold. A gateway started without that host runs
+the same watcher while it serves. [`awake.Run`](../../internal/awake/awake.go)
+applies the settings through the existing platform hold. Linux screen
+behavior depends on the desktop's support for the idle inhibitor. The
+three preferences are local to this computer (`settings.KeepOwn`).
+
 ### First opening of an agent's Details
 
 In the main window, `expandLink` in

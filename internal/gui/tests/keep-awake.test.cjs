@@ -1,26 +1,20 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
-// xiao_wang24004 on X: 能不能在里面加一个保持电脑任务常亮的选项呢？电脑在做任务
-// 的过程中经常自动关闭了. Settings → General has a "Prevent sleep" row
-// (named so by 1ooogle on X), off by default: On and Off are saved as keepAwake true and
-// false, the click moving nothing; another setting saved keeps it; a
-// browser's page (magpie web, the gateway's own computer) shows it too.
-// #975 (Hu9956: an agent recording the screen found it locked): a third
-// choice keeps the display on too, saved as keepAwakeDisplay, its line
-// saying so, and another setting's save keeps it. In every language, at
-// 900px and 440px, with the API faked.
+// The desktop and browser use the same Prevent sleep menu. The choice
+// changes mode and scope together and preserves the setting across reloads.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
-const { watchSettingsReads, settingsDrawn } = require("./reader.cjs");
+const { reach, watchSettingsReads, settingsDrawn } = require("./reader.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 const words = {
-  en: { name: "Prevent sleep", sub: "Keeps this computer awake while magpie runs tasks", on: "On", off: "Off", display: "Screen on too", displaySub: "Keeps this computer and its screen awake while magpie runs tasks" },
-  zh: { name: "防止休眠", sub: "在 magpie 运行任务时，让电脑保持唤醒状态", on: "开启", off: "关闭", display: "屏幕也常亮", displaySub: "在 magpie 运行任务时，让电脑和屏幕保持唤醒状态" },
-  ja: { name: "スリープを防ぐ", sub: "magpie がタスクを実行している間、このコンピューターをスリープさせません", on: "オン", off: "オフ", display: "画面もオン", displaySub: "magpie がタスクを実行している間、このコンピューターと画面をスリープさせません" },
-  de: { name: "Ruhezustand verhindern", sub: "Hält diesen Computer wach, während magpie Aufgaben ausführt", on: "An", off: "Aus", display: "Bildschirm auch an", displaySub: "Hält diesen Computer und den Bildschirm wach, während magpie Aufgaben ausführt" },
+  en: ["Off", "Stay awake during gateway tasks", "Screen on during gateway tasks", "Screen on while Magpie runs"],
+  zh: ["关闭", "网关任务时防休眠", "网关任务时常亮", "Magpie 运行时常亮"],
+  "zh-TW": ["關閉", "閘道任務時防休眠", "閘道任務時常亮", "Magpie 執行時常亮"],
+  ja: ["オフ", "ゲートウェイの処理中はスリープしない", "ゲートウェイの処理中は画面をオン", "Magpie の実行中は画面をオン"],
+  de: ["Aus", "Bei Gateway-Aufgaben wach", "Bildschirm an bei Gateway-Aufgaben", "Bildschirm an, solange Magpie läuft"],
 };
 
 function serve(lang, web, posted, st) {
@@ -66,92 +60,73 @@ async function open(engine, lang, web, posted, st, t, width = 900) {
   return { page, errors };
 }
 
+async function choose(page, name) {
+  await page.locator("#keepAwakePick").click();
+  await page.locator(".proto-menu").getByText(name, { exact: true }).click();
+  await page.waitForFunction(() => prefsBusy === 0);
+  assert.equal(await page.locator("#keepAwakePick").innerText(), name);
+}
+
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
-  for (const lang of ["en", "zh", "ja", "de"]) for (const width of [900, 440]) {
-    const w = words[lang];
-    test(`${engine} ${lang} ${width}px: keep awake is turned on and off in Settings → General`, async (t) => {
+  test(`${engine}: continuous display is a direct choice when the gateway is paused`, async (t) => {
+    const posted = [], st = { keepAwake: true, keepAwakeDisplay: true, gatewayPaused: true };
+    const { page, errors } = await open(engine, "zh", false, posted, st, t, 440);
+    const pick = page.locator("#keepAwakePick");
+    assert.equal(await pick.innerText(), "网关任务时常亮");
+    assert.equal(await page.locator("#keepAwakeScopeRow").count(), 0);
+    await reach(page, pick);
+    await choose(page, "Magpie 运行时常亮");
+    assert.equal(posted.at(-1).keepAwake, true);
+    assert.equal(posted.at(-1).keepAwakeDisplay, true);
+    assert.equal(posted.at(-1).keepAwakeAlways, true);
+    await page.reload();
+    await settingsDrawn(page);
+    assert.equal(await pick.innerText(), "Magpie 运行时常亮");
+    await reach(page, pick);
+    await choose(page, "网关任务时防休眠");
+    assert.equal(posted.at(-1).keepAwakeAlways, false);
+    assert.equal(posted.at(-1).keepAwakeDisplay, false);
+    assert.deepEqual(errors, []);
+  });
+
+  for (const [lang, options] of Object.entries(words)) for (const width of [900, 440]) {
+    test(`${engine} ${lang} ${width}px: Prevent sleep modes fit and save from one menu`, async (t) => {
       const posted = [], st = {};
       const { page, errors } = await open(engine, lang, false, posted, st, t, width);
-      const row = page.locator("#keepAwakeRow");
-      await row.waitFor();
-      // the row is near the page's end: scrolled by the reader, out from under the footer
+      const pick = page.locator("#keepAwakePick");
+      const [off, system, display, continuous] = options;
+      assert.equal(await pick.innerText(), off);
+      // Scroll like the reader, keeping the button clear of the sticky heading.
       await page.mouse.move(width / 2, 350);
-      const end = () => page.evaluate(() => { const m = document.querySelector("#view-settings"); return m.scrollTop + m.clientHeight >= m.scrollHeight - 1; });
-      for (let i = 0; i < 20 && !(await end()); i++) {
+      const atEnd = () => page.evaluate(() => {
+        const view = document.querySelector("#view-settings");
+        return view.scrollTop + view.clientHeight >= view.scrollHeight - 1;
+      });
+      for (let i = 0; i < 20 && !(await atEnd()); i++) {
         await page.mouse.wheel(0, 400);
         await page.waitForTimeout(150);
       }
-      assert.equal(await row.locator(".name").innerText(), w.name);
-      assert.equal(await row.locator(".sub").innerText(), w.sub);
-      const opt = (name) => row.locator("#keepAwakeSegs .opt").getByText(name, { exact: true });
-      assert.equal(await row.locator("#keepAwakeSegs .opt.on").innerText(), w.off, "off by default");
-      const where = () => page.evaluate(() => [scrollX, scrollY, document.scrollingElement.scrollTop, ...[...document.querySelectorAll("*")].filter((e) => e.scrollTop).map((e) => e.scrollTop)]);
-      const before = await where();
-      const click = async (loc) => {
-        // the last save's answer draws Settings again, every option replaced:
-        // one measured before that is gone (null) by the time it is clicked
-        await page.waitForFunction(() => prefsBusy === 0);
-        const b = await loc.boundingBox();
-        await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
-      };
-      await click(opt(w.on));
-      for (let i = 0; i < 50 && !posted.length; i++) await page.waitForTimeout(50);
-      assert.equal(posted.at(-1)?.keepAwake, true, `posted ${JSON.stringify(posted)}`);
-      assert.equal(st.keepAwake, true);
-      assert.equal(await row.locator("#keepAwakeSegs .opt.on").innerText(), w.on);
-      // another setting saved keeps it on
-      const n = posted.length;
-      await click(page.locator("#dockSegs .opt").first()).catch(() => {});
-      for (let i = 0; i < 20 && posted.length === n; i++) await page.waitForTimeout(50);
-      if (posted.length > n) assert.equal(posted.at(-1).keepAwake, true, "another setting's save turned it off");
-      // the display kept on too (#975)
-      await click(opt(w.display));
-      for (let i = 0; i < 50 && posted.at(-1)?.keepAwakeDisplay !== true; i++) await page.waitForTimeout(50);
-      assert.equal(posted.at(-1).keepAwake, true);
-      assert.equal(posted.at(-1).keepAwakeDisplay, true);
-      assert.equal(await row.locator("#keepAwakeSegs .opt.on").innerText(), w.display);
-      // the row is drawn again as the save comes back
-      for (let i = 0; i < 50 && (await row.locator(".sub").innerText()) !== w.displaySub; i++) await page.waitForTimeout(50);
-      assert.equal(await row.locator(".sub").innerText(), w.displaySub);
-      const m = posted.length;
-      await click(page.locator("#dockSegs .opt").first()).catch(() => {});
-      for (let i = 0; i < 20 && posted.length === m; i++) await page.waitForTimeout(50);
-      if (posted.length > m) assert.equal(posted.at(-1).keepAwakeDisplay, true, "another setting's save turned the display off");
-      // the segments fit the row, none cut off
-      const fit = await page.evaluate(() => {
-        const row = document.querySelector("#keepAwakeRow").getBoundingClientRect();
-        return [...document.querySelectorAll("#keepAwakeSegs .opt")].every((o) => { const b = o.getBoundingClientRect(); return b.width > 0 && b.right <= row.right + 1 && o.scrollWidth <= o.clientWidth + 1; });
-      });
-      assert(fit, "the segments don't fit the row");
-      await click(opt(w.on));
-      for (let i = 0; i < 50 && posted.at(-1)?.keepAwakeDisplay !== false; i++) await page.waitForTimeout(50);
-      assert.equal(posted.at(-1).keepAwake, true);
-      assert.equal(posted.at(-1).keepAwakeDisplay, false);
-      for (let i = 0; i < 50 && (await row.locator(".sub").innerText()) !== w.sub; i++) await page.waitForTimeout(50);
-      assert.equal(await row.locator(".sub").innerText(), w.sub);
-      await click(opt(w.off));
-      for (let i = 0; i < 50 && posted.at(-1)?.keepAwake !== false; i++) await page.waitForTimeout(50);
-      assert.equal(posted.at(-1).keepAwake, false);
-      assert.equal(posted.at(-1).keepAwakeDisplay, false);
-      assert.deepEqual(await where(), before, "the clicks moved the page");
-      // the row has no coloured stripe down its left
-      const left = await row.evaluate((e) => getComputedStyle(e).borderLeftWidth);
-      assert(parseFloat(left) <= 1, `left border ${left}`);
-      assert.deepEqual(errors, []);
-    });
-
-    if (width === 900) test(`${engine} ${lang}: a browser's page has keep awake too`, async (t) => {
-      const { page, errors } = await open(engine, lang, true, [], { keepAwake: true }, t);
-      assert.equal(await page.locator("#keepAwakeRow").isVisible(), true);
-      assert.equal(await page.locator("#keepAwakeSegs .opt.on").innerText(), words[lang].on);
-      assert.deepEqual(errors, []);
-    });
-
-    if (width === 900) test(`${engine} ${lang}: the display kept on is shown as saved`, async (t) => {
-      const { page, errors } = await open(engine, lang, false, [], { keepAwake: true, keepAwakeDisplay: true }, t);
-      assert.equal(await page.locator("#keepAwakeSegs .opt.on").innerText(), words[lang].display);
-      assert.equal(await page.locator("#keepAwakeRow .sub").innerText(), words[lang].displaySub);
+      const scroll = () => page.locator("#view-settings").evaluate((view) => view.scrollTop);
+      const before = await scroll();
+      const keys = ["keepAwake", "keepAwakeDisplay", "keepAwakeAlways"];
+      for (const [name, want] of [
+        [system, [true, false, false]],
+        [display, [true, true, false]],
+        [continuous, [true, true, true]],
+        [off, [false, false, false]],
+      ]) {
+        await choose(page, name);
+        assert.deepEqual(keys.map((k) => posted.at(-1)[k]), want);
+        assert(await pick.locator("span").evaluate((label) => label.scrollWidth <= label.clientWidth + 1), name + " was clipped");
+        assert.equal(await scroll(), before, "picking a mode moved the page");
+      }
       assert.deepEqual(errors, []);
     });
   }
+
+  test(`${engine}: a browser shows a saved continuous system-only preference`, async (t) => {
+    const { page, errors } = await open(engine, "en", true, [], { keepAwake: true, keepAwakeAlways: true }, t);
+    assert.equal(await page.locator("#keepAwakePick").innerText(), "Stay awake while Magpie runs");
+    assert.deepEqual(errors, []);
+  });
 }

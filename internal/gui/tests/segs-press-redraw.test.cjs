@@ -153,13 +153,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(posted.length, n, `dragged off, posted ${JSON.stringify(posted.slice(n))}`);
         assert.equal(await on(), w.on);
 
-        // dragged to the same option of another control (Keep awake's Off): nothing
-        await reveal(page, opt("keepAwakeSegs", w.off));
+        // dragged to the same option of another control (Restore on quit's Off): nothing
+        await reveal(page, opt("restoreQuitSegs", w.off));
         await page.mouse.move(...mid(await reveal(page, opt("lightweightSegs", w.off))));
         await page.mouse.down();
         await page.evaluate(() => renderSettings());
-        await page.mouse.move(...mid(await opt("keepAwakeSegs", w.off).boundingBox()), { steps: 4 });
-        assert.equal(await under(), "keepAwakeSegs " + w.off);
+        await page.mouse.move(...mid(await opt("restoreQuitSegs", w.off).boundingBox()), { steps: 4 });
+        assert.equal(await under(), "restoreQuitSegs " + w.off);
         await page.mouse.up();
         await page.waitForTimeout(400);
         assert.equal(posted.length, n, `dragged to another control, posted ${JSON.stringify(posted.slice(n))}`);

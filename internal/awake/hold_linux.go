@@ -17,7 +17,7 @@ func takeHold(display bool) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := proc.Command(path, "--what=idle:sleep", "--who=magpie", "--why=Agents are working through magpie", "--mode=block", "sleep", "infinity")
+	cmd := proc.Command(path, "--what=idle:sleep", "--who=magpie", "--why=Prevent sleep is enabled in magpie", "--mode=block", "sleep", "infinity")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
 	if err := cmd.Start(); err != nil {
 		return nil, err

@@ -761,10 +761,12 @@ type Settings struct {
 	// a connected agent keeps magpie as it quits. A quit then needs no
 	// question, as nothing is left pointing at a gateway that's gone.
 	RestoreOnQuit bool `json:"restoreOnQuit,omitempty"`
-	// KeepAwake keeps this computer from going to sleep by itself while
-	// agents work through the gateway and for a while after (xiao_wang24004
-	// on X; internal/awake). This computer's own (KeepOwn).
+	// KeepAwake keeps this computer from idle sleep. By default it follows
+	// gateway activity and the grace period in internal/awake.
 	KeepAwake bool `json:"keepAwake,omitempty"`
+	// KeepAwakeAlways applies KeepAwake whenever magpie runs, including
+	// with its gateway paused. This computer's own (KeepOwn).
+	KeepAwakeAlways bool `json:"keepAwakeAlways,omitempty"`
 	// NoWSLAgents stops magpie looking in WSL on its own, on Windows
 	// (#1264): no distro is listed or probed for agents, their sessions or
 	// Claude Code, and the agents found there before aren't shown.
@@ -1821,7 +1823,8 @@ func (s *Settings) KeepOwn(cur Settings) {
 	s.PluginProxy, s.PluginProxyCustom = cur.PluginProxy, cur.PluginProxyCustom
 	s.UpdateProxy, s.UpdateProxyCustom = cur.UpdateProxy, cur.UpdateProxyCustom
 	s.UpdateSource = cur.UpdateSource
-	s.WindowMaximised, s.KeepAwake, s.KeepAwakeDisplay = cur.WindowMaximised, cur.KeepAwake, cur.KeepAwakeDisplay
+	s.WindowMaximised = cur.WindowMaximised
+	s.KeepAwake, s.KeepAwakeDisplay, s.KeepAwakeAlways = cur.KeepAwake, cur.KeepAwakeDisplay, cur.KeepAwakeAlways
 	s.WindowAt, s.OnTop = cur.WindowAt, cur.OnTop
 	s.TrayUsages, s.TrayUsage, s.TrayUsageEvery, s.TrayNoLogos, s.TrayNoBird, s.TrayPace, s.TrayNoCost = cur.TrayUsages, cur.TrayUsage, cur.TrayUsageEvery, cur.TrayNoLogos, cur.TrayNoBird, cur.TrayPace, cur.TrayNoCost
 	s.TrayWindows, s.TrayNoNumber, s.TrayCurrency, s.TrayAnthropicMark = cur.TrayWindows, cur.TrayNoNumber, cur.TrayCurrency, cur.TrayAnthropicMark

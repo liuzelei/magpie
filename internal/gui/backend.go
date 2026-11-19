@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yetone/magpie/internal/agent"
+	"github.com/yetone/magpie/internal/awake"
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/codexrelay"
 	"github.com/yetone/magpie/internal/filememo"
@@ -23,7 +24,7 @@ var served atomic.Pointer[gateway.Server]
 // backendCtx ends the gateway this process serves (stopServing).
 var backendCtx, endBackend = context.WithCancel(context.Background())
 
-// serving is the gateway this process serves, until it has finished.
+// serving waits for the gateway and the awake watcher to finish.
 var serving sync.WaitGroup
 
 // stopServing stops this process's gateway taking requests and returns
@@ -47,7 +48,16 @@ func StopServing() { stopServing() }
 // model lists kept warm.
 func startBackend() (gw *gateway.Server) {
 	gateway.Window = true // the routing this process serves is shown on its page
-	gw = serveGateway()
+	gatewayMu.Lock()
+	gw = serveGatewayLocked()
+	if backendCtx.Err() == nil {
+		serving.Add(1)
+		go func() {
+			defer serving.Done()
+			awake.Run(backendCtx, func() awake.State { return served.Load().AwakeState() })
+		}()
+	}
+	gatewayMu.Unlock()
 	go watchGateway(backendCtx, gatewayWatch)
 	// the usage log parsed now, not when the tray panel first asks for
 	// today's calls (CyberCaius)
@@ -187,6 +197,7 @@ func serveGatewayLocked() *gateway.Server {
 	gatewayOther.Store(nil)
 	gateway.ClearHeld()
 	gw := gateway.New()
+	gw.AwakeManagedByHost = true
 	served.Store(gw)
 	serving.Add(1)
 	ctx, stop := context.WithCancel(backendCtx)
