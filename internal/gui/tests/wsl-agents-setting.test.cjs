@@ -96,7 +96,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.equal(await row.locator("#wslAgentsSegs .opt.on").innerText(), w.off);
       // another setting saved keeps it off
       const n = posted.length;
-      await click(page.locator("#keepAwakeSegs .opt").nth(1));
+      await click(page.locator("#keepAwakePick"));
+      await page.locator(".proto-menu").getByRole("menuitemradio").nth(1).click();
       for (let i = 0; i < 50 && posted.length === n; i++) await page.waitForTimeout(50);
       assert(posted.length > n, "the other setting wasn't saved");
       assert.equal(posted.at(-1).noWSLAgents, true, "another setting's save turned WSL detection on");
